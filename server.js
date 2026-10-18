@@ -23,11 +23,11 @@ const CERTS = path.join(__dirname, 'certs');
 
 // ---------------------------------------------------------------- game rules
 const RULES = { maxHealth: 100, damage: 34,   // 3 hits = knockout (100 → 66 → 32 → 0)
-  cooldownMs: 1500, downMs: 8000, hitScore: 1, koScore: 5, cards: 20, onlineMs: 60000, feedMax: 20 };
+  cooldownMs: 1500, downMs: 8000, hitScore: 1, koScore: 5, cards: 20, shieldMs: 5000, shieldsPerRound: 1, onlineMs: 60000, feedMax: 20 };
 
 // ---------------------------------------------------------------- state
 const game = { state: 'lobby', round: 0, players: new Map(), feed: [], hits: [] };   // hits: recent {t, from, to, ko} for the arena view
-const ARENA = { w: 20, h: 14 };                                                     // metres; players dead-reckon inside it
+const ARENA = { w: 20, h: 14, margin: 1.2 };                                     // metres; players are kept `margin` inside the edges                                                     // metres; players dead-reckon inside it
 const byToken = new Map();
 const sseClients = new Set();
 
@@ -46,7 +46,7 @@ function log(...a) { console.log(new Date().toISOString().slice(11, 19), ...a); 
 function pushFeed(text) { game.feed.unshift({ t: now(), text }); game.feed.length = Math.min(game.feed.length, RULES.feedMax); }
 function isOnline(p) { return now() - p.lastSeen < RULES.onlineMs; }
 function snapshot() {
-  const players = [...game.players.values()].map(p => ({ id: p.id, name: p.name, card: p.card, health: p.health, score: p.score, down: p.down, downLeft: p.down ? Math.max(0, p.downUntil - now()) : 0, online: isOnline(p), kills: p.kills, deaths: p.deaths, x: p.x, y: p.y, h: p.h, moved: p.moved }))
+  const players = [...game.players.values()].map(p => ({ id: p.id, name: p.name, card: p.card, health: p.health, score: p.score, down: p.down, downLeft: p.down ? Math.max(0, p.downUntil - now()) : 0, online: isOnline(p), kills: p.kills, deaths: p.deaths, x: p.x, y: p.y, h: p.h, moved: p.moved, shielded: p.shieldUntil > now(), shieldLeft: Math.max(0, p.shieldUntil - now()), shieldsLeft: p.shieldsLeft }))
     .sort((a, b) => b.score - a.score || a.card - b.card);
   return { state: game.state, round: game.round, players, feed: game.feed, hits: game.hits.filter(h => now() - h.t < 1500), arena: ARENA, rules: RULES, ip: lanIp(), httpsPort: HTTPS_PORT, t: now() };
 }
@@ -76,7 +76,7 @@ function join(name, card) {
   const id = 'p' + crypto.randomBytes(3).toString('hex');
   const token = crypto.randomBytes(16).toString('hex');
   const p = { id, token, name, card, health: RULES.maxHealth, score: 0, kills: 0, deaths: 0, down: false, downUntil: 0, lastShot: 0, lastSeen: now(),
-    x: 0, y: 0, h: 0, moved: 0 };
+    x: 0, y: 0, h: 0, moved: 0, shieldUntil: 0, shieldsLeft: RULES.shieldsPerRound };
   spawnAtCentre(p);
   game.players.set(id, p); byToken.set(token, p);
   pushFeed(`${name} joined with card ${card}`); changed(); log('join', name, card);
@@ -92,6 +92,7 @@ function hit(token, targetCard) {
   if (!t) return { ok: false, reason: `card ${targetCard} not in game` };
   if (t.id === s.id) return { ok: false, reason: "that's you" };
   if (t.down) return { ok: false, reason: `${t.name} is down` };
+  if (t.shieldUntil > now()) { pushFeed(`${s.name}'s shot bounced off ${t.name}'s shield`); changed(); return { ok: false, reason: `${t.name} is shielded` }; }
   const n = now();
   if (n - s.lastShot < RULES.cooldownMs) return { ok: false, reason: 'cooldown', waitMs: RULES.cooldownMs - (n - s.lastShot) };
   s.lastShot = n; t.health = Math.max(0, t.health - RULES.damage); s.score += RULES.hitScore;
@@ -104,7 +105,7 @@ function hit(token, targetCard) {
 }
 function host(pin, action, playerId) {
   if (HOST_PIN && pin !== HOST_PIN) return { ok: false, reason: 'bad pin' };
-  if (action === 'start') { game.state = 'live'; game.round++; for (const p of game.players.values()) { p.health = RULES.maxHealth; p.down = false; p.score = 0; p.kills = 0; p.deaths = 0; spawnAtCentre(p); } game.feed = []; pushFeed(`Round ${game.round} started`); }
+  if (action === 'start') { game.state = 'live'; game.round++; for (const p of game.players.values()) { p.health = RULES.maxHealth; p.down = false; p.score = 0; p.kills = 0; p.deaths = 0; p.shieldUntil = 0; p.shieldsLeft = RULES.shieldsPerRound; spawnAtCentre(p); } game.feed = []; pushFeed(`Round ${game.round} started`); }
   else if (action === 'end') { game.state = 'ended'; const top = snapshot().players[0]; pushFeed(top ? `Round over. Winner: ${top.name} (${top.score})` : 'Round over'); }
   else if (action === 'lobby') { game.state = 'lobby'; pushFeed('Back to lobby'); }
   else if (action === 'reset') { game.state = 'lobby'; game.round = 0; game.players.clear(); byToken.clear(); game.feed = []; pushFeed('Game reset'); }
@@ -137,6 +138,11 @@ async function handle(req, res, secure) {
   const p = url.pathname;
   if (req.method === 'GET') {
     if (p === '/api/state') return send(res, 200, snapshot());
+    if (p === '/api/me') {                                                    // compact status for the watch: ?card=N
+      const card = Number(url.searchParams.get('card')); const pl = [...game.players.values()].find(x => x.card === card);
+      const snapP = pl ? snapshot().players.find(x => x.card === card) : null;
+      return send(res, 200, { state: game.state, round: game.round, feed: game.feed[0] ? game.feed[0].text : '', player: snapP });
+    }
     if (p === '/api/events') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
       res.write(`data: ${JSON.stringify(snapshot())}\n\n`);
@@ -152,11 +158,21 @@ async function handle(req, res, secure) {
     if (p === '/api/hit') return send(res, 200, hit(body.token, body.targetCard));
     if (p === '/api/heartbeat') { const pl = byToken.get(body.token); if (!pl) return send(res, 404, { ok: false, reason: 'not joined' }); pl.lastSeen = now(); return send(res, 200, { ok: true, player: { id: pl.id, name: pl.name, card: pl.card, health: pl.health, score: pl.score, down: pl.down } }); }
     if (p === '/api/host') return send(res, 200, host(body.pin, body.action, body.playerId));
+    if (p === '/api/shield') {                                                // watch power-up: {token} or {card}
+      const pl = body.token ? byToken.get(body.token) : [...game.players.values()].find(x => x.card === Number(body.card));
+      if (!pl) return send(res, 404, { ok: false, reason: 'not joined' });
+      if (game.state !== 'live') return send(res, 200, { ok: false, reason: 'not live' });
+      if (pl.down) return send(res, 200, { ok: false, reason: 'you are down' });
+      if (pl.shieldsLeft <= 0) return send(res, 200, { ok: false, reason: 'no shields left' });
+      pl.shieldsLeft--; pl.shieldUntil = now() + RULES.shieldMs; pushFeed(`${pl.name} raised a shield!`); changed();
+      return send(res, 200, { ok: true, shieldMs: RULES.shieldMs, shieldsLeft: pl.shieldsLeft });
+    }
     if (p === '/api/pos') {                                                   // phone dead-reckoning: {token, dx, dy, h} metres since last report, or {token, x, y} to recentre
       const pl = byToken.get(body.token); if (!pl) return send(res, 404, { ok: false, reason: 'not joined' });
       pl.lastSeen = now();
-      if (typeof body.x === 'number' && typeof body.y === 'number') { pl.x = clamp(body.x, 0, ARENA.w); pl.y = clamp(body.y, 0, ARENA.h); }
-      else { pl.x = clamp(pl.x + (Number(body.dx) || 0), 0, ARENA.w); pl.y = clamp(pl.y + (Number(body.dy) || 0), 0, ARENA.h); }
+      const M = ARENA.margin;
+      if (typeof body.x === 'number' && typeof body.y === 'number') { pl.x = clamp(body.x, M, ARENA.w - M); pl.y = clamp(body.y, M, ARENA.h - M); }
+      else { pl.x = clamp(pl.x + (Number(body.dx) || 0), M, ARENA.w - M); pl.y = clamp(pl.y + (Number(body.dy) || 0), M, ARENA.h - M); }
       if (typeof body.h === 'number') pl.h = ((body.h % 360) + 360) % 360;
       pl.x = +pl.x.toFixed(2); pl.y = +pl.y.toFixed(2); pl.moved = now(); changed();
       return send(res, 200, { ok: true, x: pl.x, y: pl.y });

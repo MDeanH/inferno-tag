@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Board · Inferno Tag</title><link rel="stylesheet" href="/style.css?v=1792354531">
+<title>Board · Inferno Tag</title><link rel="stylesheet" href="/style.css?v=1792355003">
 <style>
   .board .layout { grid-template-columns: 1fr 300px; }
   .arenawrap { position:relative; border-radius:16px; overflow:hidden; border:1px solid #5a2a18; box-shadow:0 0 40px #ff6a2a22, inset 0 0 80px #000; background:#0b0403; }
@@ -32,7 +32,7 @@
   </div>
 </div>
 <div class="podium hidden" id="podium"><h2>Round over</h2><p class="win" id="winName"></p><div class="others" id="others"></div><button class="btn" id="againBtn">Play again</button></div>
-<script src="/vendor/qrcode.js?v=1792354531"></script><script src="/app.js?v=1792354531"></script>
+<script src="/vendor/qrcode.js?v=1792355003"></script><script src="/app.js?v=1792355003"></script>
 <script>
 const esc = (t) => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const COLORS = ['#ff6a2a','#6fe08a','#5ac8fa','#ffd166','#ff5fa2','#c792ea','#ffa94d','#4dd4ac','#f78da7','#8ab4f8','#ffe066','#7bed9f','#ff7f50','#70a1ff','#eccc68','#7efff5','#ff6b81','#a4b0be','#2ed573','#ffa502'];
@@ -86,11 +86,12 @@ function draw(now) {
   requestAnimationFrame(draw);
   if (!snap) return;
   const W = cv.width, H = cv.height, dpr = devicePixelRatio, aw = snap.arena ? snap.arena.w : 20, ah = snap.arena ? snap.arena.h : 14;
-  const sx = W / aw, sy = H / ah, t = now / 1000;
+  const pad = 56 * dpr, sx = (W - 2 * pad) / aw, sy = (H - 2 * pad) / ah, ox = pad, oy = pad, t = now / 1000;
   // floor
   const g = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7); g.addColorStop(0, '#2a1008'); g.addColorStop(1, '#070202');
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   hexGrid(W, H, 26 * dpr, dpr);
+  ctx.strokeStyle = '#ff6a2a44'; ctx.lineWidth = 2 * dpr; ctx.strokeRect(ox, oy, aw * sx, ah * sy);
   // centre spawn ring (pulsing)
   ctx.strokeStyle = `rgba(255,106,42,${0.25 + 0.15 * Math.sin(t * 2)})`; ctx.lineWidth = 2 * dpr; ctx.setLineDash([8 * dpr, 8 * dpr]); ctx.lineDashOffset = -now / 40;
   ctx.beginPath(); ctx.arc(W / 2, H / 2, 1.6 * sx, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
@@ -108,14 +109,14 @@ function draw(now) {
   // trails
   for (const { p, cur } of byCard.values()) {
     const col = COLORS[(p.card - 1) % 20];
-    for (let i = 1; i < cur.trail.length; i++) { const a = cur.trail[i - 1], b = cur.trail[i], age = now - b.at; if (age > 6000) continue; ctx.strokeStyle = col; ctx.globalAlpha = 0.35 * (1 - age / 6000); ctx.lineWidth = 3 * dpr; ctx.beginPath(); ctx.moveTo(a.x * sx, a.y * sy); ctx.lineTo(b.x * sx, b.y * sy); ctx.stroke(); }
+    for (let i = 1; i < cur.trail.length; i++) { const a = cur.trail[i - 1], b = cur.trail[i], age = now - b.at; if (age > 6000) continue; ctx.strokeStyle = col; ctx.globalAlpha = 0.35 * (1 - age / 6000); ctx.lineWidth = 3 * dpr; ctx.beginPath(); ctx.moveTo((a.x * sx + ox), (a.y * sy + oy)); ctx.lineTo((b.x * sx + ox), (b.y * sy + oy)); ctx.stroke(); }
     ctx.globalAlpha = 1;
   }
   // beams + sparks + waves
   for (let i = beams.length - 1; i >= 0; i--) {
     const f = beams[i], age = now - f.at; if (age > 600) { beams.splice(i, 1); continue; }
     const a = byCard.get(f.from), b = byCard.get(f.to); if (!a || !b) continue;
-    const ax = a.cur.x * sx, ay = a.cur.y * sy, bx = b.cur.x * sx, by = b.cur.y * sy;
+    const ax = a.(cur.x * sx + ox), ay = a.(cur.y * sy + oy), bx = b.(cur.x * sx + ox), by = b.(cur.y * sy + oy);
     if (!f.spawned) { f.spawned = true; for (let k = 0; k < (f.ko ? 36 : 14); k++) { const an = Math.random() * Math.PI * 2, sp = (1 + Math.random() * 3) * dpr; sparks.push({ x: bx, y: by, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp, life: 1, col: f.ko ? '#ff3b3b' : '#ffd166' }); } if (f.ko) waves.push({ x: bx, y: by, at: now }); }
     const k = 1 - age / 600; ctx.globalAlpha = k;
     ctx.strokeStyle = f.ko ? '#ff3b3b' : '#ffd166'; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 16 * dpr; ctx.lineWidth = (f.ko ? 6 : 3) * dpr;
@@ -128,12 +129,13 @@ function draw(now) {
   // characters
   for (const { p, cur } of byCard.values()) {
     const col = COLORS[(p.card - 1) % 20], r = 17 * dpr, bob = Math.sin(t * 3 + p.card) * 1.5 * dpr;
-    const x = cur.x * sx, y = cur.y * sy + bob;
+    const x = (cur.x * sx + ox), y = (cur.y * sy + oy) + bob;
     ctx.globalAlpha = p.online ? 1 : 0.35;
     ctx.fillStyle = '#000a'; ctx.beginPath(); ctx.ellipse(x, y + r + 6 * dpr, r * 1.1, r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
     const glow = ctx.createRadialGradient(x, y, r * 0.6, x, y, r * 2.8); glow.addColorStop(0, col + '66'); glow.addColorStop(1, col + '00'); ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(x, y, r * 2.8, 0, Math.PI * 2); ctx.fill();
     const rad = cur.h * Math.PI / 180; const cone = ctx.createRadialGradient(x, y, r, x, y, r * 3.4); cone.addColorStop(0, col + '88'); cone.addColorStop(1, col + '00');
     ctx.fillStyle = cone; ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r * 3.4, rad - Math.PI / 2 - 0.5, rad - Math.PI / 2 + 0.5); ctx.closePath(); ctx.fill();
+    if (p.shielded) { ctx.strokeStyle = `rgba(90,200,250,${0.6 + 0.4 * Math.sin(t * 12)})`; ctx.lineWidth = 3 * dpr; ctx.shadowColor = '#5ac8fa'; ctx.shadowBlur = 18 * dpr; ctx.beginPath(); ctx.arc(x, y, r + 16 * dpr, 0, Math.PI * 2); ctx.stroke(); ctx.shadowBlur = 0; ctx.fillStyle = '#5ac8fa'; ctx.font = `bold ${11 * dpr}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('🛡 ' + Math.ceil(p.shieldLeft / 1000) + 's', x, y + r + 32 * dpr); }
     ctx.lineWidth = 5 * dpr; ctx.strokeStyle = '#2a2a2a'; ctx.beginPath(); ctx.arc(x, y, r + 6 * dpr, 0, Math.PI * 2); ctx.stroke();
     ctx.strokeStyle = p.down ? '#555' : p.health <= 34 ? '#ff3b3b' : p.health <= 67 ? '#ffd166' : '#6fe08a'; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 10 * dpr;
     ctx.beginPath(); ctx.arc(x, y, r + 6 * dpr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p.health / 100); ctx.stroke(); ctx.shadowBlur = 0;

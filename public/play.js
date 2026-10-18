@@ -133,10 +133,10 @@
       const p = players.get(card); const isMe = me && card === me.card;
       const c = s.corners; const cx = c.reduce((a, q) => a + q.x, 0) / 4, cy = c.reduce((a, q) => a + q.y, 0) / 4;
       const hot = flashCard === card && t < flashUntil;
-      ctx2d.lineWidth = 4 * dpr; ctx2d.strokeStyle = hot ? '#ff3b3b' : isMe ? '#888' : (p && p.down) ? '#ffd166' : '#ff6a2a';
+      ctx2d.lineWidth = 4 * dpr; ctx2d.strokeStyle = hot ? '#ff3b3b' : isMe ? '#888' : (p && p.shielded) ? '#5ac8fa' : (p && p.down) ? '#ffd166' : '#ff6a2a';
       ctx2d.beginPath(); c.forEach((q, i) => i ? ctx2d.lineTo(q.x, q.y) : ctx2d.moveTo(q.x, q.y)); ctx2d.closePath(); ctx2d.stroke();
       const top = Math.min(...c.map(q => q.y)) - 10 * dpr;
-      const label = isMe ? 'YOU' : (p ? `${p.name} · ${p.down ? 'DOWN' : p.health + ' HP'}` : `card ${card} (not joined)`);
+      const label = isMe ? 'YOU' : (p ? `${p.name} · ${p.down ? 'DOWN' : p.shielded ? '🛡 SHIELDED' : p.health + ' HP'}` : `card ${card} (not joined)`);
       ctx2d.font = `bold ${Math.round(18 * dpr)}px system-ui,sans-serif`; ctx2d.textAlign = 'center';
       const w = Math.max(ctx2d.measureText(label).width + 20 * dpr, 120 * dpr);
       ctx2d.fillStyle = '#000c'; ctx2d.fillRect(cx - w / 2, top - 40 * dpr, w, 38 * dpr);
