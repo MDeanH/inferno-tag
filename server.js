@@ -48,7 +48,7 @@ function isOnline(p) { return now() - p.lastSeen < RULES.onlineMs; }
 function snapshot() {
   const players = [...game.players.values()].map(p => ({ id: p.id, name: p.name, card: p.card, health: p.health, score: p.score, down: p.down, downLeft: p.down ? Math.max(0, p.downUntil - now()) : 0, online: isOnline(p), kills: p.kills, deaths: p.deaths, x: p.x, y: p.y, h: p.h, moved: p.moved, shielded: p.shieldUntil > now(), shieldLeft: Math.max(0, p.shieldUntil - now()), shieldsLeft: p.shieldsLeft }))
     .sort((a, b) => b.score - a.score || a.card - b.card);
-  return { state: game.state, round: game.round, players, feed: game.feed, hits: game.hits.filter(h => now() - h.t < 1500), arena: ARENA, rules: RULES, ip: lanIp(), httpsPort: HTTPS_PORT, t: now() };
+  return { state: game.state, round: game.round, players, feed: game.feed, botAttack: game.botAttack || null, hits: game.hits.filter(h => now() - h.t < 1500), arena: ARENA, rules: RULES, ip: lanIp(), httpsPort: HTTPS_PORT, t: now() };
 }
 function broadcast() {
   const data = `data: ${JSON.stringify(snapshot())}\n\n`;
@@ -106,12 +106,38 @@ function hit(token, targetCard) {
 function host(pin, action, playerId) {
   if (HOST_PIN && pin !== HOST_PIN) return { ok: false, reason: 'bad pin' };
   if (action === 'start') { game.state = 'live'; game.round++; for (const p of game.players.values()) { p.health = RULES.maxHealth; p.down = false; p.score = 0; p.kills = 0; p.deaths = 0; p.shieldUntil = 0; p.shieldsLeft = RULES.shieldsPerRound; spawnAtCentre(p); } game.feed = []; pushFeed(`Round ${game.round} started`); }
-  else if (action === 'end') { game.state = 'ended'; const top = snapshot().players[0]; pushFeed(top ? `Round over. Winner: ${top.name} (${top.score})` : 'Round over'); }
+  else if (action === 'end') { stopBotAttack(); game.state = 'ended'; const top = snapshot().players[0]; pushFeed(top ? `Round over. Winner: ${top.name} (${top.score})` : 'Round over'); }
   else if (action === 'lobby') { game.state = 'lobby'; pushFeed('Back to lobby'); }
-  else if (action === 'reset') { game.state = 'lobby'; game.round = 0; game.players.clear(); byToken.clear(); game.feed = []; pushFeed('Game reset'); }
+  else if (action === 'reset') { stopBotAttack(); game.state = 'lobby'; game.round = 0; game.players.clear(); byToken.clear(); game.feed = []; pushFeed('Game reset'); }
+  else if (action === 'botattack') {                                           // test: the bot (Dummy) fires at a target until knockout
+    const bot = [...game.players.values()].find(p => /^dummy$/i.test(p.name)) || [...game.players.values()].find(p => p.card === 7);
+    const target = playerId ? game.players.get(playerId) : [...game.players.values()].find(p => !/^(dummy|tester|sniper)$/i.test(p.name) && isOnline(p));
+    if (!bot) return { ok: false, reason: 'no Dummy bot in the game' };
+    if (!target || target.id === bot.id) return { ok: false, reason: 'no target' };
+    if (game.state !== 'live') return { ok: false, reason: 'start a round first' };
+    startBotAttack(bot, target); return { ok: true, target: target.name };
+  }
+  else if (action === 'botstop') { stopBotAttack(); }
   else if (action === 'kick') { const p = game.players.get(playerId); if (p) { game.players.delete(p.id); byToken.delete(p.token); pushFeed(`${p.name} was removed`); } }
   else return { ok: false, reason: 'unknown action' };
   changed(); log('host', action); return { ok: true };
+}
+
+// ---------------------------------------------------------------- bot attack (test feature)
+let botTimer = null;
+function stopBotAttack() { if (botTimer) { clearInterval(botTimer); botTimer = null; } game.botAttack = null; }
+function startBotAttack(bot, target) {
+  stopBotAttack(); game.botAttack = { from: bot.card, to: target.card, shots: 0, hits: 0 }; changed();
+  pushFeed(`${bot.name} is hunting ${target.name}!`);
+  botTimer = setInterval(() => {
+    const b = game.players.get(bot.id), t = game.players.get(target.id);
+    if (!b || !t || game.state !== 'live' || t.down) { pushFeed(t && t.down ? `${bot.name} took out ${target.name}` : `${bot.name} stopped hunting`); stopBotAttack(); changed(); return; }
+    if (b.down) return;                                                        // bot is down: wait for respawn
+    game.botAttack.shots++;
+    if (Math.random() < 0.55) { const r = hit(b.token, t.card); if (r.ok) game.botAttack.hits++; else if (r.reason !== 'cooldown') pushFeed(`${bot.name} fired at ${target.name}: ${r.reason}`); }
+    else pushFeed(`${bot.name} fired at ${target.name} and missed`);
+    changed();
+  }, 1800);
 }
 
 // ---------------------------------------------------------------- http plumbing

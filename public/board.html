@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Board · Inferno Tag</title><link rel="stylesheet" href="/style.css?v=1792357407">
+<title>Board · Inferno Tag</title><link rel="stylesheet" href="/style.css?v=1792357639">
 <style>
   .board .layout { grid-template-columns: 1fr 300px; }
   .arenawrap { position:relative; border-radius:16px; overflow:hidden; border:1px solid #5a2a18; box-shadow:0 0 40px #ff6a2a22, inset 0 0 80px #000; background:#0b0403; }
@@ -16,7 +16,7 @@
 </style></head>
 <body><div class="board">
   <div class="kicker">Devin's Inferno · Miami</div>
-  <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap"><h1 class="logo"><span class="flame">🔥</span> INFERNO <em>TAG</em> <span class="badge" id="state">LOBBY</span> <span class="state" id="round"></span></h1><button class="btn" id="startBtn" style="width:auto;margin:0;padding:14px 28px;font-size:20px">Start game</button><button class="btn ghost" id="endBtn" style="width:auto;margin:0;padding:14px 20px">End round</button><span class="small" id="hostErr"></span></div>
+  <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap"><h1 class="logo"><span class="flame">🔥</span> INFERNO <em>TAG</em> <span class="badge" id="state">LOBBY</span> <span class="state" id="round"></span></h1><button class="btn" id="startBtn" style="width:auto;margin:0;padding:14px 28px;font-size:20px">Start game</button><button class="btn ghost" id="endBtn" style="width:auto;margin:0;padding:14px 20px">End round</button><button class="btn ghost" id="botBtn" style="width:auto;margin:0;padding:14px 20px;border-color:#ffd166;color:#ffd166" title="Test: Dummy shoots at the top human player, hits and misses, until knockout">🤖 Dummy fires back</button><span class="small" id="hostErr"></span></div>
   <div class="layout">
     <div>
       <div class="arenawrap" id="arenawrap"><canvas id="arena"></canvas><div class="ticker" id="ticker"></div><button class="fsbtn" id="fsbtn">⛶ Full screen</button></div>
@@ -32,7 +32,7 @@
   </div>
 </div>
 <div class="podium hidden" id="podium"><h2>Round over</h2><p class="win" id="winName"></p><div class="others" id="others"></div><button class="btn" id="againBtn">Play again</button></div>
-<script src="/vendor/qrcode.js?v=1792357407"></script><script src="/app.js?v=1792357407"></script>
+<script src="/vendor/qrcode.js?v=1792357639"></script><script src="/app.js?v=1792357639"></script>
 <script>
 const esc = (t) => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const COLORS = ['#ff6a2a','#6fe08a','#5ac8fa','#ffd166','#ff5fa2','#c792ea','#ffa94d','#4dd4ac','#f78da7','#8ab4f8','#ffe066','#7bed9f','#ff7f50','#70a1ff','#eccc68','#7efff5','#ff6b81','#a4b0be','#2ed573','#ffa502'];
@@ -47,6 +47,7 @@ const narrator = Inferno.narrator(document.getElementById('narrate'));
 const hostAct = async (action) => { const r = await Inferno.api('/api/host', { pin: '', action }); document.getElementById('hostErr').textContent = r.ok ? '' : r.reason; };
 document.getElementById('startBtn').onclick = () => { if (snap && snap.state === 'live' && !confirm('Restart the game? Health and scores reset, everyone back to the centre.')) return; hostAct('start'); };
 document.getElementById('endBtn').onclick = () => hostAct('end');
+document.getElementById('botBtn').onclick = () => hostAct(snap && snap.botAttack ? 'botstop' : 'botattack');
 document.getElementById('againBtn').onclick = () => hostAct('start');
 document.getElementById('fsbtn').onclick = () => { const w = document.getElementById('arenawrap'); document.fullscreenElement ? document.exitFullscreen() : w.requestFullscreen && w.requestFullscreen(); };
 const tick = (text, ko) => { const t = document.getElementById('ticker'); t.innerHTML = ''; const d = document.createElement('div'); d.textContent = text; if (ko) d.className = 'ko'; t.appendChild(d); };
@@ -57,6 +58,7 @@ Inferno.events((s) => {
   document.getElementById('round').textContent = s.round ? `Round ${s.round}` : '';
   document.getElementById('startBtn').textContent = s.state === 'live' ? 'Restart game' : (s.round ? 'Start new round' : 'Start game');
   document.getElementById('endBtn').style.display = s.state === 'live' ? '' : 'none';
+  const bb = document.getElementById('botBtn'); bb.style.display = s.state === 'live' ? '' : 'none'; bb.textContent = s.botAttack ? `🤖 hunting card ${s.botAttack.to} · stop` : '🤖 Dummy fires back';
   const pod = document.getElementById('podium'); const ended = s.state === 'ended' && s.players.length;
   pod.classList.toggle('hidden', !ended);
   if (ended) { const top = s.players; document.getElementById('winName').textContent = `🏆 ${top[0].name} · ${top[0].score} pts`; document.getElementById('others').innerHTML = top.slice(1, 4).map((p, i) => `<span>${['🥈','🥉','4.'][i]} ${esc(p.name)} ${p.score}</span>`).join(''); }
