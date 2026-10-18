@@ -116,7 +116,7 @@ function host(pin, action, playerId) {
 
 // ---------------------------------------------------------------- http plumbing
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.ico': 'image/x-icon' };
-const PAGES = { '/': 'index.html', '/play': 'play.html', '/board': 'board.html', '/host': 'host.html', '/cards': 'cards.html', '/landing': 'landing.html' };
+const PAGES = { '/': 'index.html', '/play': 'play.html', '/board': 'board.html', '/host': 'host.html', '/cards': 'cards.html', '/landing': 'landing.html', '/wall': 'wall.html' };
 function send(res, code, body, type = 'application/json') {
   res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store' });
   res.end(type.startsWith('application/json') ? JSON.stringify(body) : body);

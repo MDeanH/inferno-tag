@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wall · Inferno Tag</title><link rel="stylesheet" href="/style.css?v=1792354531">
+<style>
+  body { background:#0b0403; } .wall { padding:16px; }
+  .grid { display:grid; gap:14px; }
+  .tile { background:#fff; border-radius:12px; padding:10px 10px 6px; text-align:center; color:#000; }
+  .tile svg { width:100%; aspect-ratio:1; display:block; shape-rendering:crispEdges; image-rendering:pixelated; }
+  .tile .n { font-weight:900; font-size:clamp(18px,2.6vw,34px); line-height:1.1; }
+  .tile .who { font-size:clamp(11px,1.2vw,16px); color:#444; min-height:1.2em; }
+  .tile.down { opacity:.35; } .tile .bar { height:8px; background:#ddd; border-radius:4px; overflow:hidden; margin:4px 0 2px; } .tile .bar i { display:block; height:100%; background:#2ecc71; }
+  .top { color:var(--dim); font-size:13px; margin:0 0 10px; display:flex; justify-content:space-between; }
+</style></head>
+<body><div class="wall">
+  <div class="top"><span>🔥 INFERNO TAG · marker wall · point a phone at a card and tap it</span><span id="status"></span></div>
+  <div class="grid" id="grid"></div>
+</div>
+<script src="/vendor/cv.js?v=1792354531"></script><script src="/vendor/aruco.js?v=1792354531"></script><script src="/vendor/aruco_4x4_1000.js?v=1792354531"></script><script src="/app.js?v=1792354531"></script>
+<script>
+const q = new URLSearchParams(location.search);
+const from = Math.max(1, Number(q.get('from') || 1)), to = Math.min(20, Number(q.get('to') || q.get('n') || 10));
+const cols = Number(q.get('cols')) || (to - from + 1 > 6 ? 5 : to - from + 1);
+const dict = new AR.Dictionary('ARUCO_4X4_1000'); const grid = document.getElementById('grid'); grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+const tiles = new Map();
+for (let i = from; i <= to; i++) { const d = document.createElement('div'); d.className = 'tile'; d.innerHTML = `${dict.generateSVG(i)}<div class="n">${i}</div><div class="bar"><i style="width:100%"></i></div><div class="who">not joined</div>`; grid.appendChild(d); tiles.set(i, d); }
+Inferno.events((s) => {
+  document.getElementById('status').textContent = `${s.state.toUpperCase()}${s.round ? ' · round ' + s.round : ''} · ${s.players.length} player(s)`;
+  for (const [card, d] of tiles) { const p = s.players.find(x => x.card === card); d.classList.toggle('down', !!(p && p.down)); d.querySelector('.who').textContent = p ? `${p.name} · ${p.down ? 'DOWN' : p.health + ' HP'} · ${p.score} pts` : 'not joined'; d.querySelector('.bar i').style.width = (p ? p.health : 100) + '%'; d.querySelector('.bar i').style.background = p && p.health <= 34 ? '#e74c3c' : '#2ecc71'; }
+});
+</script></body></html>
