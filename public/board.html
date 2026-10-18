@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Board · Inferno Tag</title><link rel="stylesheet" href="/style.css?v=1792357639">
+<title>Board · Inferno Tag</title><link rel="stylesheet" href="/style.css?v=1792357943">
 <style>
   .board .layout { grid-template-columns: 1fr 300px; }
   .arenawrap { position:relative; border-radius:16px; overflow:hidden; border:1px solid #5a2a18; box-shadow:0 0 40px #ff6a2a22, inset 0 0 80px #000; background:#0b0403; }
@@ -25,6 +25,7 @@
     </div>
     <div class="side">
       <div class="panel" style="text-align:center"><div class="qr" id="qr"></div><p id="url" style="font-size:15px;word-break:break-all"></p><p class="small">Wi-Fi: LAB Events · accept the certificate warning once</p></div>
+      <div class="panel hidden" id="targetPanel" style="text-align:center;background:#fff;color:#000"><div id="targetSvg" style="width:100%;max-width:240px;margin:0 auto"></div><div style="font-weight:900;font-size:22px" id="targetName">Dummy · card 7</div><div class="bar" style="background:#ddd"><i id="targetHp" style="width:100%"></i></div><div class="small" style="color:#444">point your phone here and tap the marker to shoot</div></div>
       <div class="panel"><b>Feed</b><div class="feed" id="feed"></div></div>
       <button class="btn ghost" id="narrate" style="margin-top:12px">🔇 Narration off</button>
       <p class="small" id="conn">connecting…</p>
@@ -32,7 +33,7 @@
   </div>
 </div>
 <div class="podium hidden" id="podium"><h2>Round over</h2><p class="win" id="winName"></p><div class="others" id="others"></div><button class="btn" id="againBtn">Play again</button></div>
-<script src="/vendor/qrcode.js?v=1792357639"></script><script src="/app.js?v=1792357639"></script>
+<script src="/vendor/cv.js?v=1792357943"></script><script src="/vendor/aruco.js?v=1792357943"></script><script src="/vendor/aruco_4x4_1000.js?v=1792357943"></script><script src="/vendor/qrcode.js?v=1792357943"></script><script src="/app.js?v=1792357943"></script>
 <script>
 const esc = (t) => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const COLORS = ['#ff6a2a','#6fe08a','#5ac8fa','#ffd166','#ff5fa2','#c792ea','#ffa94d','#4dd4ac','#f78da7','#8ab4f8','#ffe066','#7bed9f','#ff7f50','#70a1ff','#eccc68','#7efff5','#ff6b81','#a4b0be','#2ed573','#ffa502'];
@@ -63,6 +64,9 @@ Inferno.events((s) => {
   pod.classList.toggle('hidden', !ended);
   if (ended) { const top = s.players; document.getElementById('winName').textContent = `🏆 ${top[0].name} · ${top[0].score} pts`; document.getElementById('others').innerHTML = top.slice(1, 4).map((p, i) => `<span>${['🥈','🥉','4.'][i]} ${esc(p.name)} ${p.score}</span>`).join(''); }
   document.getElementById('rows').innerHTML = s.players.map((p, i) => `<tr class="${p.online ? '' : 'off'}"><td>${i + 1}</td><td><span style="color:${COLORS[(p.card - 1) % 20]}">●</span> ${esc(p.name)}${p.down ? ' <span class="down">DOWN ' + Math.ceil(p.downLeft / 1000) + '</span>' : ''}</td><td>${p.card}</td><td><div class="bar${p.health <= 34 ? ' low' : ''}"><i style="width:${p.health}%"></i></div></td><td><b>${p.score}</b></td><td>${p.kills}</td></tr>`).join('') || '<tr><td colspan="6" class="small">Nobody yet. Scan the code →</td></tr>';
+  const bot = s.players.find(p => /^dummy$/i.test(p.name));
+  const tp = document.getElementById('targetPanel'); tp.classList.toggle('hidden', !bot);
+  if (bot) { if (tp.dataset.card != bot.card) { tp.dataset.card = bot.card; document.getElementById('targetSvg').innerHTML = new AR.Dictionary('ARUCO_4X4_1000').generateSVG(bot.card).replace('<svg ', '<svg style="width:100%;display:block;shape-rendering:crispEdges" '); } document.getElementById('targetName').textContent = `${bot.name} · card ${bot.card} · ${bot.down ? 'DOWN' : bot.health + ' HP'}`; const hp = document.getElementById('targetHp'); hp.style.width = bot.health + '%'; hp.style.background = bot.down ? '#999' : bot.health <= 34 ? '#e74c3c' : '#2ecc71'; }
   document.getElementById('feed').innerHTML = s.feed.slice(0, 8).map(f => `<div>${esc(f.text)}</div>`).join('');
   for (const h of (s.hits || [])) { const k = h.t + ':' + h.from + ':' + h.to; if (!seenHits.has(k)) { seenHits.add(k); beams.push({ ...h, at: performance.now() }); } }
   if (seenHits.size > 500) seenHits.clear();
