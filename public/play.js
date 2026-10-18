@@ -45,7 +45,7 @@
     Inferno.sounds.shot(); Inferno.vibrate(30);
     const ret = $('reticle'); ret.classList.remove('reloading'); void ret.offsetWidth; ret.classList.add('reloading');
     const r = await Inferno.api('/api/hit', { token, targetCard: card }).catch(() => ({ ok: false, reason: 'network' }));
-    if (r.ok) { flashCard = card; flashUntil = performance.now() + 250; hitMark(lastTap.x, lastTap.y, r.ko); if (r.ko) { banner(`KO! ${r.targetName}`); Inferno.sounds.ko(); Inferno.vibrate([60, 40, 120]); } else { toast(`${r.targetName} −10 · ${r.targetHealth} HP`); Inferno.sounds.hit(); } }
+    if (r.ok) { flashCard = card; flashUntil = performance.now() + 250; hitMark(lastTap.x, lastTap.y, r.ko); if (r.ko) { banner(`KO! ${r.targetName}`); Inferno.sounds.ko(); Inferno.vibrate([60, 40, 120]); } else { toast(`${r.targetName} −${state && state.rules ? state.rules.damage : ''} · ${r.targetHealth} HP`); Inferno.sounds.hit(); } }
     else { Inferno.sounds.deny(); toast(r.reason === 'cooldown' ? 'reloading…' : r.reason, 700); }
   };
 

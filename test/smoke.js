@@ -31,8 +31,9 @@ let fails = 0; const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FAI
   check(!(await api('/api/host', { pin: '0000', action: 'start' })).ok, 'bad PIN rejected');
   check((await api('/api/host', { pin: PIN, action: 'start' })).ok, 'round started');
 
+  const RULES = (await api('/api/state')).rules; const hitsToKo = Math.ceil(RULES.maxHealth / RULES.damage);
   r = await api('/api/hit', { token: players[0].token, targetCard: 2 });
-  check(r.ok && r.targetHealth === 90, 'first hit lands: -10');
+  check(r.ok && r.targetHealth === RULES.maxHealth - RULES.damage, `first hit lands: -${RULES.damage}`);
   r = await api('/api/hit', { token: players[0].token, targetCard: 2 });
   check(!r.ok && r.reason === 'cooldown', 'second hit inside cooldown rejected');
   r = await api('/api/hit', { token: players[0].token, targetCard: 1 });
@@ -40,18 +41,18 @@ let fails = 0; const check = (ok, msg) => { console.log((ok ? '  ok   ' : '  FAI
   r = await api('/api/hit', { token: 'nope', targetCard: 2 });
   check(!r.ok, 'unknown token rejected');
 
-  // knock out player 2: 9 more hits from different shooters
-  for (let i = 2; i <= 10; i++) { r = await api('/api/hit', { token: players[i].token, targetCard: 2 }); }
-  check(r.ok && r.ko && r.targetHealth === 0, 'tenth hit knocks out');
-  r = await api('/api/hit', { token: players[11].token, targetCard: 2 });
+  // knock out player 2 with the remaining hits from different shooters
+  for (let i = 2; i <= hitsToKo; i++) { r = await api('/api/hit', { token: players[i].token, targetCard: 2 }); }
+  check(r.ok && r.ko && r.targetHealth === 0, `hit ${hitsToKo} knocks out`);
+  r = await api('/api/hit', { token: players[hitsToKo + 2].token, targetCard: 2 });
   check(!r.ok && /down/.test(r.reason), 'hitting a downed player rejected');
   r = await api('/api/hit', { token: players[1].token, targetCard: 3 });
   check(!r.ok && /you are down/.test(r.reason), 'downed player cannot shoot');
 
   let s = await api('/api/state');
-  const p10 = s.players.find(p => p.card === 11);
-  check(p10.score === 6 && p10.kills === 1, 'knockout shooter scored +1 +5');
-  check(s.players[0].card === 11, 'leaderboard sorted by score');
+  const koer = s.players.find(p => p.card === hitsToKo + 1);
+  check(koer.score === RULES.hitScore + RULES.koScore && koer.kills === 1, 'knockout shooter scored +1 +5');
+  check(s.players[0].card === hitsToKo + 1, 'leaderboard sorted by score');
   check(s.feed.length > 0 && s.feed.length <= 20, 'feed populated and capped');
 
   // SSE delivers snapshots

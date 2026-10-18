@@ -22,7 +22,8 @@ const PUBLIC = path.join(__dirname, 'public');
 const CERTS = path.join(__dirname, 'certs');
 
 // ---------------------------------------------------------------- game rules
-const RULES = { maxHealth: 100, damage: 10, cooldownMs: 1500, downMs: 8000, hitScore: 1, koScore: 5, cards: 20, onlineMs: 60000, feedMax: 20 };
+const RULES = { maxHealth: 100, damage: 34,   // 3 hits = knockout (100 → 66 → 32 → 0)
+  cooldownMs: 1500, downMs: 8000, hitScore: 1, koScore: 5, cards: 20, onlineMs: 60000, feedMax: 20 };
 
 // ---------------------------------------------------------------- state
 const game = { state: 'lobby', round: 0, players: new Map(), feed: [], hits: [] };   // hits: recent {t, from, to, ko} for the arena view
