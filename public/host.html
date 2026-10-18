@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Host · Inferno Tag</title><link rel="stylesheet" href="/style.css?v=1792354165"></head>
+<body><main>
+  <div class="kicker">Inferno Tag</div><h1>Host <span>controls</span></h1>
+    <div class="panel"><div class="row" style="display:flex;justify-content:space-between"><b id="state">…</b><span id="count"></span></div>
+    <div class="hostbtns">
+      <button class="btn" data-a="start">Start round</button>
+      <button class="btn ghost" data-a="end">End round</button>
+      <button class="btn ghost" data-a="lobby">Back to lobby</button>
+      <button class="btn ghost" data-a="reset" style="color:var(--bad)">Reset everything</button>
+    </div>
+    <div class="err" id="err"></div>
+    <button class="btn ghost" id="narrate" style="margin-top:12px">🔇 Narration off</button>
+    <p class="small">Narration reads every hit, knockout and join aloud. Turn it on once; keep this page open.<br>“shoot” next to a player fires a test hit at them from a hidden Tester player (card 20).</p>
+  </div>
+  <div class="panel"><b>Players</b><div class="list" id="list"></div></div>
+</main>
+<script src="/app.js?v=1792354165"></script>
+<script>
+const esc = (t) => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const pin = () => '';
+const act = async (action, playerId) => { const r = await Inferno.api('/api/host', { pin: pin(), action, playerId }); document.getElementById('err').textContent = r.ok ? '' : r.reason; };
+document.querySelectorAll('[data-a]').forEach(b => b.onclick = () => { if (b.dataset.a === 'reset' && !confirm('Remove all players and scores?')) return; act(b.dataset.a); });
+const narrator = Inferno.narrator(document.getElementById('narrate'));
+// Test shots: this page joins a hidden "Tester" player (card 20) once and shoots through the normal API.
+const testShot = async (card) => {
+  let tok = ''; try { tok = localStorage.getItem('inferno.tester') || ''; } catch {}
+  if (tok) { const hb = await Inferno.api('/api/heartbeat', { token: tok }); if (!hb.ok) tok = ''; }
+  if (!tok) { const j = await Inferno.api('/api/join', { name: 'Tester', card: 20 }); if (!j.token) return document.getElementById('err').textContent = j.error || 'could not join tester'; tok = j.token; try { localStorage.setItem('inferno.tester', tok); } catch {} }
+  const r = await Inferno.api('/api/hit', { token: tok, targetCard: card });
+  document.getElementById('err').textContent = r.ok ? `hit card ${card} → ${r.targetName} at ${r.targetHealth}${r.ko ? ' (KO)' : ''}` : `no hit: ${r.reason}`;
+};
+Inferno.events((s) => {
+  narrator.update(s);
+  document.getElementById('state').textContent = `${s.state.toUpperCase()}${s.round ? ' · round ' + s.round : ''}`;
+  document.getElementById('count').textContent = `${s.players.filter(p => p.online).length} online / ${s.players.length}`;
+  document.getElementById('list').innerHTML = s.players.map(p => `<div><span>${p.card} · ${esc(p.name)} · ${p.health}hp · ${p.score}pts${p.down ? ' · DOWN' : ''}${p.online ? '' : ' · offline'}</span><span><button data-s="${p.card}" style="color:var(--warn);margin-right:8px">shoot</button><button data-k="${p.id}">kick</button></span></div>`).join('');
+  document.querySelectorAll('[data-k]').forEach(b => b.onclick = () => act('kick', b.dataset.k));
+  document.querySelectorAll('[data-s]').forEach(b => b.onclick = () => testShot(Number(b.dataset.s)));
+});
+</script></body></html>

@@ -1,0 +1,5 @@
+certs/
+node_modules/
+cards-out/*
+!cards-out/phone-markers.pdf
+.DS_Store

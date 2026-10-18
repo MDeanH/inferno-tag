@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Play · Inferno Tag</title><link rel="stylesheet" href="/style.css?v=1792354165"></head>
+<body>
+<div class="play" id="play">
+  <video id="video" playsinline muted autoplay></video>
+  <canvas id="overlay"></canvas>
+  <div class="vignette" id="vignette"></div>
+  <div class="reticle" id="reticle"><svg viewBox="0 0 72 72"><circle class="ring" cx="36" cy="36" r="30"/><circle class="reload" cx="36" cy="36" r="32"/><circle class="dot" cx="36" cy="36" r="3"/><line x1="36" y1="2" x2="36" y2="12" stroke="#fff8" stroke-width="2"/><line x1="36" y1="60" x2="36" y2="70" stroke="#fff8" stroke-width="2"/><line x1="2" y1="36" x2="12" y2="36" stroke="#fff8" stroke-width="2"/><line x1="60" y1="36" x2="70" y2="36" stroke="#fff8" stroke-width="2"/></svg></div>
+  <div class="banner" id="banner"></div>
+  <div class="hud">
+    <div class="row"><span id="me">…</span><span class="badge" id="state">LOBBY</span><span id="score">0 pts</span></div>
+    <div class="bar" id="hbar"><i id="hfill" style="width:100%"></i></div>
+  </div>
+  <div id="hitflash" style="position:absolute;inset:0;background:#ff2020;opacity:0;transition:opacity .25s;pointer-events:none"></div>
+  <div class="toast" id="toast"></div>
+  <div class="feed" id="feed"></div>
+  <div class="cover" id="start">
+    <h1 class="logo"><span class="flame">🔥</span> INFERNO <em>TAG</em></h1><p>Tap to start your camera. Point it at a chest card and tap the card to shoot.</p>
+    <button class="btn" id="startBtn" style="width:auto;padding:16px 40px">Start camera</button>
+    <button class="btn ghost" id="manualBtn" style="width:auto">No camera? Use the list</button>
+    <p class="small" id="startErr"></p>
+  </div>
+  <div class="cover hidden" id="down"><div class="big">DOWN</div><h2 id="downLeft">8</h2><p>Respawning…</p></div>
+  <div class="cover hidden" id="manual" style="justify-content:flex-start;padding-top:80px;overflow:auto"><h2>Tap a player to shoot</h2><div class="cards" id="manualList" style="width:100%"></div><button class="btn ghost" id="manualClose" style="width:auto">Back to camera</button></div>
+</div>
+<script src="/vendor/cv.js?v=1792354165"></script><script src="/vendor/aruco.js?v=1792354165"></script><script src="/vendor/aruco_4x4_1000.js?v=1792354165"></script>
+<script src="/app.js?v=1792354165"></script><script src="/play.js?v=1792354165"></script>
+</body></html>

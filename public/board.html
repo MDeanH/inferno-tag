@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Board · Inferno Tag</title><link rel="stylesheet" href="/style.css?v=1792354165">
+<style>
+  .board .layout { grid-template-columns: 1fr 300px; }
+  #arena { width:100%; aspect-ratio: 20/14; background:#1a0a07; border:1px solid var(--line); border-radius:14px; display:block; }
+  .board table { font-size:20px; margin-top:14px; } .board td,.board th { padding:5px 8px; }
+  .legend { color:var(--dim); font-size:14px; margin:6px 0 0; }
+</style></head>
+<body><div class="board">
+  <div class="kicker">Devin's Inferno · Miami</div>
+  <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap"><h1 class="logo"><span class="flame">🔥</span> INFERNO <em>TAG</em> <span class="badge" id="state">LOBBY</span> <span class="state" id="round"></span></h1><button class="btn" id="startBtn" style="width:auto;margin:0;padding:14px 28px;font-size:20px">Start game</button><button class="btn ghost" id="endBtn" style="width:auto;margin:0;padding:14px 20px">End round</button><span class="small" id="hostErr"></span></div>
+  <div class="layout">
+    <div>
+      <canvas id="arena"></canvas>
+      <p class="legend">Characters turn with each phone's compass and walk with its steps. Flashes are hits; a skull is a knockout.</p>
+      <table><thead><tr><th>#</th><th>Player</th><th>Card</th><th style="width:30%">Health</th><th>Score</th><th>KO</th></tr></thead><tbody id="rows"></tbody></table>
+    </div>
+    <div class="side">
+      <div class="panel" style="text-align:center"><div class="qr" id="qr"></div><p id="url" style="font-size:15px;word-break:break-all"></p><p class="small">Wi-Fi: LAB Events · accept the certificate warning once</p></div>
+      <div class="panel"><b>Feed</b><div class="feed" id="feed"></div></div>
+      <button class="btn ghost" id="narrate" style="margin-top:12px">🔇 Narration off</button>
+      <p class="small" id="conn">connecting…</p>
+    </div>
+  </div>
+</div>
+<div class="podium hidden" id="podium"><h2>Round over</h2><p class="win" id="winName"></p><div class="others" id="others"></div><button class="btn" id="againBtn">Play again</button></div>
+<script src="/vendor/qrcode.js?v=1792354165"></script><script src="/app.js?v=1792354165"></script>
+<script>
+const esc = (t) => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const COLORS = ['#ff6a2a','#6fe08a','#5ac8fa','#ffd166','#ff5fa2','#c792ea','#ffa94d','#4dd4ac','#f78da7','#8ab4f8','#ffe066','#7bed9f','#ff7f50','#70a1ff','#eccc68','#7efff5','#ff6b81','#a4b0be','#2ed573','#ffa502'];
+let snap = null, urlDone = false;
+const shown = new Map();   // card -> {x,y,h} smoothed for animation
+const flashes = [];        // {t, from, to, ko}
+const seenHits = new Set();
+
+const narrator = Inferno.narrator(document.getElementById('narrate'));
+// Start / restart from the board itself (no PIN).
+const hostAct = async (action) => {
+  const r = await Inferno.api('/api/host', { pin: '', action });
+  document.getElementById('hostErr').textContent = r.ok ? '' : r.reason;
+};
+document.getElementById('startBtn').onclick = () => { if (snap && snap.state === 'live' && !confirm('Restart the game? Health and scores reset, everyone back to the centre.')) return; hostAct('start'); };
+document.getElementById('endBtn').onclick = () => hostAct('end');
+document.getElementById('againBtn').onclick = () => hostAct('start');
+Inferno.events((s) => {
+  snap = s; narrator.update(s);
+  document.getElementById('startBtn').textContent = s.state === 'live' ? 'Restart game' : (s.round ? 'Start new round' : 'Start game');
+  const pod = document.getElementById('podium'); const ended = s.state === 'ended' && s.players.length;
+  pod.classList.toggle('hidden', !ended);
+  if (ended) { const top = s.players; document.getElementById('winName').textContent = `🏆 ${top[0].name} · ${top[0].score} pts`; document.getElementById('others').innerHTML = top.slice(1, 4).map((p, i) => `<span>${['🥈','🥉','4.'][i]} ${esc(p.name)} ${p.score}</span>`).join(''); }
+  document.getElementById('endBtn').style.display = s.state === 'live' ? '' : 'none';
+  document.getElementById('state').textContent = s.state.toUpperCase(); document.getElementById('state').className = 'badge ' + s.state;
+  document.getElementById('round').textContent = s.round ? `Round ${s.round}` : '';
+  document.getElementById('rows').innerHTML = s.players.map((p, i) => `<tr class="${p.online ? '' : 'off'}"><td>${i + 1}</td><td><span style="color:${COLORS[(p.card - 1) % 20]}">●</span> ${esc(p.name)}${p.down ? ' <span class="down">DOWN ' + Math.ceil(p.downLeft / 1000) + '</span>' : ''}</td><td>${p.card}</td><td><div class="bar${p.health <= 30 ? ' low' : ''}"><i style="width:${p.health}%"></i></div></td><td><b>${p.score}</b></td><td>${p.kills}</td></tr>`).join('') || '<tr><td colspan="6" class="small">Nobody yet. Scan the code →</td></tr>';
+  document.getElementById('feed').innerHTML = s.feed.slice(0, 8).map(f => `<div>${esc(f.text)}</div>`).join('');
+  for (const h of (s.hits || [])) { const k = h.t + ':' + h.from + ':' + h.to; if (!seenHits.has(k)) { seenHits.add(k); flashes.push({ ...h, at: performance.now() }); } }
+  if (seenHits.size > 500) seenHits.clear();
+  if (!urlDone) { const u = Inferno.gameUrl(s); document.getElementById('qr').innerHTML = Inferno.qrSvg(u, 200); document.getElementById('url').textContent = u; urlDone = true; }
+}, (ok) => { document.getElementById('conn').textContent = ok ? 'live' : 'reconnecting…'; });
+
+// ---------------------------------------------------------------- arena animation
+const cv = document.getElementById('arena'), ctx = cv.getContext('2d');
+const fit = () => { const r = cv.getBoundingClientRect(); cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio; };
+addEventListener('resize', fit); fit();
+const lerp = (a, b, k) => a + (b - a) * k;
+const lerpAngle = (a, b, k) => { let d = ((b - a + 540) % 360) - 180; return (a + d * k + 360) % 360; };
+function draw(now) {
+  requestAnimationFrame(draw);
+  if (!snap) return;
+  const W = cv.width, H = cv.height, aw = snap.arena ? snap.arena.w : 20, ah = snap.arena ? snap.arena.h : 14;
+  const sx = W / aw, sy = H / ah, dpr = devicePixelRatio;
+  ctx.clearRect(0, 0, W, H);
+  // floor grid
+  ctx.strokeStyle = '#2b140d'; ctx.lineWidth = 1 * dpr;
+  for (let x = 0; x <= aw; x += 2) { ctx.beginPath(); ctx.moveTo(x * sx, 0); ctx.lineTo(x * sx, H); ctx.stroke(); }
+  for (let y = 0; y <= ah; y += 2) { ctx.beginPath(); ctx.moveTo(0, y * sy); ctx.lineTo(W, y * sy); ctx.stroke(); }
+  ctx.fillStyle = '#4a2114'; ctx.font = `${12 * dpr}px system-ui`; ctx.fillText('N ↑', 10 * dpr, 18 * dpr);
+  // smooth positions
+  const byCard = new Map();
+  for (const p of snap.players) {
+    const cur = shown.get(p.card) || { x: p.x, y: p.y, h: p.h };
+    cur.x = lerp(cur.x, p.x, 0.12); cur.y = lerp(cur.y, p.y, 0.12); cur.h = lerpAngle(cur.h, p.h, 0.2);
+    shown.set(p.card, cur); byCard.set(p.card, { p, cur });
+  }
+  for (const card of [...shown.keys()]) if (!byCard.has(card)) shown.delete(card);
+  // hit flashes
+  for (let i = flashes.length - 1; i >= 0; i--) {
+    const f = flashes[i], age = now - f.at; if (age > 700) { flashes.splice(i, 1); continue; }
+    const a = byCard.get(f.from), b = byCard.get(f.to); if (!a || !b) continue;
+    ctx.globalAlpha = 1 - age / 700; ctx.strokeStyle = f.ko ? '#ff3b3b' : '#ffd166'; ctx.lineWidth = (f.ko ? 6 : 3) * dpr;
+    ctx.beginPath(); ctx.moveTo(a.cur.x * sx, a.cur.y * sy); ctx.lineTo(b.cur.x * sx, b.cur.y * sy); ctx.stroke();
+    ctx.beginPath(); ctx.arc(b.cur.x * sx, b.cur.y * sy, (14 + age / 20) * dpr, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  // characters
+  for (const { p, cur } of byCard.values()) {
+    const x = cur.x * sx, y = cur.y * sy, r = 16 * dpr, col = COLORS[(p.card - 1) % 20];
+    ctx.globalAlpha = p.online ? 1 : 0.35;
+    // heading cone
+    const rad = cur.h * Math.PI / 180;
+    ctx.fillStyle = col + '55'; ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r * 2.6, rad - Math.PI / 2 - 0.45, rad - Math.PI / 2 + 0.45); ctx.closePath(); ctx.fill();
+    // health ring
+    ctx.lineWidth = 4 * dpr; ctx.strokeStyle = '#333'; ctx.beginPath(); ctx.arc(x, y, r + 5 * dpr, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = p.health <= 30 ? '#ff3b3b' : '#6fe08a'; ctx.beginPath(); ctx.arc(x, y, r + 5 * dpr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p.health / 100); ctx.stroke();
+    // body
+    ctx.fillStyle = p.down ? '#555' : col; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#000'; ctx.font = `bold ${14 * dpr}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(p.down ? '☠' : String(p.card), x, y + 1 * dpr);
+    // name + score
+    ctx.fillStyle = '#fff'; ctx.font = `bold ${13 * dpr}px system-ui`; ctx.textBaseline = 'alphabetic';
+    ctx.fillText(`${p.name} · ${p.score}`, x, y - r - 10 * dpr);
+    if (p.down) { ctx.fillStyle = '#ff3b3b'; ctx.font = `${12 * dpr}px system-ui`; ctx.fillText(`back in ${Math.ceil(p.downLeft / 1000)}s`, x, y + r + 16 * dpr); }
+    ctx.globalAlpha = 1;
+  }
+  if (!snap.players.length) { ctx.fillStyle = '#b89a8a'; ctx.font = `${20 * dpr}px system-ui`; ctx.textAlign = 'center'; ctx.fillText('Waiting for players…', W / 2, H / 2); }
+}
+requestAnimationFrame(draw);
+</script></body></html>

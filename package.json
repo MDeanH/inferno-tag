@@ -1,0 +1,9 @@
+{
+  "name": "inferno-tag",
+  "version": "1.0.0",
+  "description": "AR laser tag for a room of phones on a Raspberry Pi — zero dependencies",
+  "main": "server.js",
+  "scripts": { "start": "node server.js", "test": "node test/smoke.js" },
+  "license": "MIT",
+  "private": true
+}
