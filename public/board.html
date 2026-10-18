@@ -3,17 +3,24 @@
 <title>Board · Inferno Tag</title><link rel="stylesheet" href="/style.css?v=1792354531">
 <style>
   .board .layout { grid-template-columns: 1fr 300px; }
-  #arena { width:100%; aspect-ratio: 20/14; background:#1a0a07; border:1px solid var(--line); border-radius:14px; display:block; }
+  .arenawrap { position:relative; border-radius:16px; overflow:hidden; border:1px solid #5a2a18; box-shadow:0 0 40px #ff6a2a22, inset 0 0 80px #000; background:#0b0403; }
+  #arena { width:100%; aspect-ratio: 20/14; display:block; }
+  .arenawrap:fullscreen { border-radius:0; border:0; } .arenawrap:fullscreen #arena { height:100vh; width:100vw; aspect-ratio:auto; }
+  .fsbtn { position:absolute; right:10px; top:10px; background:#000a; color:#fff; border:1px solid #fff3; border-radius:8px; padding:6px 10px; font-size:13px; cursor:pointer; }
+  .ticker { position:absolute; left:0; right:0; top:10px; text-align:center; pointer-events:none; }
+  .ticker div { display:inline-block; background:#000b; border:1px solid #ff6a2a66; color:#fff; font-weight:800; font-size:22px; padding:8px 18px; border-radius:999px; box-shadow:0 0 24px #ff6a2a55; animation: tick 2.6s ease-out forwards; }
+  .ticker div.ko { color:#ff5b5b; border-color:#ff3b3b; box-shadow:0 0 30px #ff3b3b88; font-size:26px; }
+  @keyframes tick { 0%{opacity:0;transform:translateY(-12px) scale(.9)} 10%{opacity:1;transform:none} 80%{opacity:1} 100%{opacity:0;transform:translateY(-6px)} }
   .board table { font-size:20px; margin-top:14px; } .board td,.board th { padding:5px 8px; }
-  .legend { color:var(--dim); font-size:14px; margin:6px 0 0; }
+  .legend { color:var(--dim); font-size:13px; margin:6px 0 0; }
 </style></head>
 <body><div class="board">
   <div class="kicker">Devin's Inferno · Miami</div>
   <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap"><h1 class="logo"><span class="flame">🔥</span> INFERNO <em>TAG</em> <span class="badge" id="state">LOBBY</span> <span class="state" id="round"></span></h1><button class="btn" id="startBtn" style="width:auto;margin:0;padding:14px 28px;font-size:20px">Start game</button><button class="btn ghost" id="endBtn" style="width:auto;margin:0;padding:14px 20px">End round</button><span class="small" id="hostErr"></span></div>
   <div class="layout">
     <div>
-      <canvas id="arena"></canvas>
-      <p class="legend">Characters turn with each phone's compass and walk with its steps. Flashes are hits; a skull is a knockout.</p>
+      <div class="arenawrap" id="arenawrap"><canvas id="arena"></canvas><div class="ticker" id="ticker"></div><button class="fsbtn" id="fsbtn">⛶ Full screen</button></div>
+      <p class="legend">Characters turn with each phone's compass and walk with its steps. Beams are hits; a shockwave is a knockout.</p>
       <table><thead><tr><th>#</th><th>Player</th><th>Card</th><th style="width:30%">Health</th><th>Score</th><th>KO</th></tr></thead><tbody id="rows"></tbody></table>
     </div>
     <div class="side">
@@ -30,90 +37,120 @@
 const esc = (t) => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const COLORS = ['#ff6a2a','#6fe08a','#5ac8fa','#ffd166','#ff5fa2','#c792ea','#ffa94d','#4dd4ac','#f78da7','#8ab4f8','#ffe066','#7bed9f','#ff7f50','#70a1ff','#eccc68','#7efff5','#ff6b81','#a4b0be','#2ed573','#ffa502'];
 let snap = null, urlDone = false;
-const shown = new Map();   // card -> {x,y,h} smoothed for animation
-const flashes = [];        // {t, from, to, ko}
-const seenHits = new Set();
+const shown = new Map();      // card -> smoothed {x,y,h,trail:[]}
+const beams = [];             // {from,to,ko,at}
+const sparks = [];            // particles {x,y,vx,vy,life,col}
+const waves = [];             // ko shockwaves {x,y,at}
+const seenHits = new Set(), seenFeed = new Set(); let feedPrimed = false;
 
 const narrator = Inferno.narrator(document.getElementById('narrate'));
-// Start / restart from the board itself (no PIN).
-const hostAct = async (action) => {
-  const r = await Inferno.api('/api/host', { pin: '', action });
-  document.getElementById('hostErr').textContent = r.ok ? '' : r.reason;
-};
+const hostAct = async (action) => { const r = await Inferno.api('/api/host', { pin: '', action }); document.getElementById('hostErr').textContent = r.ok ? '' : r.reason; };
 document.getElementById('startBtn').onclick = () => { if (snap && snap.state === 'live' && !confirm('Restart the game? Health and scores reset, everyone back to the centre.')) return; hostAct('start'); };
 document.getElementById('endBtn').onclick = () => hostAct('end');
 document.getElementById('againBtn').onclick = () => hostAct('start');
+document.getElementById('fsbtn').onclick = () => { const w = document.getElementById('arenawrap'); document.fullscreenElement ? document.exitFullscreen() : w.requestFullscreen && w.requestFullscreen(); };
+const tick = (text, ko) => { const t = document.getElementById('ticker'); t.innerHTML = ''; const d = document.createElement('div'); d.textContent = text; if (ko) d.className = 'ko'; t.appendChild(d); };
+
 Inferno.events((s) => {
   snap = s; narrator.update(s);
+  document.getElementById('state').textContent = s.state.toUpperCase(); document.getElementById('state').className = 'badge ' + s.state;
+  document.getElementById('round').textContent = s.round ? `Round ${s.round}` : '';
   document.getElementById('startBtn').textContent = s.state === 'live' ? 'Restart game' : (s.round ? 'Start new round' : 'Start game');
+  document.getElementById('endBtn').style.display = s.state === 'live' ? '' : 'none';
   const pod = document.getElementById('podium'); const ended = s.state === 'ended' && s.players.length;
   pod.classList.toggle('hidden', !ended);
   if (ended) { const top = s.players; document.getElementById('winName').textContent = `🏆 ${top[0].name} · ${top[0].score} pts`; document.getElementById('others').innerHTML = top.slice(1, 4).map((p, i) => `<span>${['🥈','🥉','4.'][i]} ${esc(p.name)} ${p.score}</span>`).join(''); }
-  document.getElementById('endBtn').style.display = s.state === 'live' ? '' : 'none';
-  document.getElementById('state').textContent = s.state.toUpperCase(); document.getElementById('state').className = 'badge ' + s.state;
-  document.getElementById('round').textContent = s.round ? `Round ${s.round}` : '';
-  document.getElementById('rows').innerHTML = s.players.map((p, i) => `<tr class="${p.online ? '' : 'off'}"><td>${i + 1}</td><td><span style="color:${COLORS[(p.card - 1) % 20]}">●</span> ${esc(p.name)}${p.down ? ' <span class="down">DOWN ' + Math.ceil(p.downLeft / 1000) + '</span>' : ''}</td><td>${p.card}</td><td><div class="bar${p.health <= 30 ? ' low' : ''}"><i style="width:${p.health}%"></i></div></td><td><b>${p.score}</b></td><td>${p.kills}</td></tr>`).join('') || '<tr><td colspan="6" class="small">Nobody yet. Scan the code →</td></tr>';
+  document.getElementById('rows').innerHTML = s.players.map((p, i) => `<tr class="${p.online ? '' : 'off'}"><td>${i + 1}</td><td><span style="color:${COLORS[(p.card - 1) % 20]}">●</span> ${esc(p.name)}${p.down ? ' <span class="down">DOWN ' + Math.ceil(p.downLeft / 1000) + '</span>' : ''}</td><td>${p.card}</td><td><div class="bar${p.health <= 34 ? ' low' : ''}"><i style="width:${p.health}%"></i></div></td><td><b>${p.score}</b></td><td>${p.kills}</td></tr>`).join('') || '<tr><td colspan="6" class="small">Nobody yet. Scan the code →</td></tr>';
   document.getElementById('feed').innerHTML = s.feed.slice(0, 8).map(f => `<div>${esc(f.text)}</div>`).join('');
-  for (const h of (s.hits || [])) { const k = h.t + ':' + h.from + ':' + h.to; if (!seenHits.has(k)) { seenHits.add(k); flashes.push({ ...h, at: performance.now() }); } }
+  for (const h of (s.hits || [])) { const k = h.t + ':' + h.from + ':' + h.to; if (!seenHits.has(k)) { seenHits.add(k); beams.push({ ...h, at: performance.now() }); } }
   if (seenHits.size > 500) seenHits.clear();
+  const lines = s.feed.slice().reverse();
+  if (!feedPrimed) { lines.forEach(f => seenFeed.add(f.t + f.text)); feedPrimed = true; }
+  else for (const f of lines) { const k = f.t + f.text; if (!seenFeed.has(k)) { seenFeed.add(k); tick(f.text, /knocked out/.test(f.text)); } }
   if (!urlDone) { const u = Inferno.gameUrl(s); document.getElementById('qr').innerHTML = Inferno.qrSvg(u, 200); document.getElementById('url').textContent = u; urlDone = true; }
 }, (ok) => { document.getElementById('conn').textContent = ok ? 'live' : 'reconnecting…'; });
 
-// ---------------------------------------------------------------- arena animation
+// ---------------------------------------------------------------- arena renderer
 const cv = document.getElementById('arena'), ctx = cv.getContext('2d');
-const fit = () => { const r = cv.getBoundingClientRect(); cv.width = r.width * devicePixelRatio; cv.height = r.height * devicePixelRatio; };
-addEventListener('resize', fit); fit();
+const fit = () => { const r = cv.getBoundingClientRect(); cv.width = Math.max(1, r.width * devicePixelRatio); cv.height = Math.max(1, r.height * devicePixelRatio); };
+addEventListener('resize', fit); document.addEventListener('fullscreenchange', () => setTimeout(fit, 50)); fit();
 const lerp = (a, b, k) => a + (b - a) * k;
 const lerpAngle = (a, b, k) => { let d = ((b - a + 540) % 360) - 180; return (a + d * k + 360) % 360; };
+const hexGrid = (W, H, size, dpr) => {
+  const h = size * Math.sqrt(3); ctx.strokeStyle = '#3a1a10'; ctx.lineWidth = 1 * dpr;
+  for (let y = -h, row = 0; y < H + h; y += h * 0.75, row++) for (let x = -size * 2 + (row % 2 ? size * 1.5 : 0); x < W + size * 2; x += size * 3) {
+    ctx.beginPath(); for (let i = 0; i < 6; i++) { const a = Math.PI / 3 * i + Math.PI / 6; const px = x + size * Math.cos(a), py = y + size * Math.sin(a); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); } ctx.closePath(); ctx.stroke();
+  }
+};
 function draw(now) {
   requestAnimationFrame(draw);
   if (!snap) return;
-  const W = cv.width, H = cv.height, aw = snap.arena ? snap.arena.w : 20, ah = snap.arena ? snap.arena.h : 14;
-  const sx = W / aw, sy = H / ah, dpr = devicePixelRatio;
-  ctx.clearRect(0, 0, W, H);
-  // floor grid
-  ctx.strokeStyle = '#2b140d'; ctx.lineWidth = 1 * dpr;
-  for (let x = 0; x <= aw; x += 2) { ctx.beginPath(); ctx.moveTo(x * sx, 0); ctx.lineTo(x * sx, H); ctx.stroke(); }
-  for (let y = 0; y <= ah; y += 2) { ctx.beginPath(); ctx.moveTo(0, y * sy); ctx.lineTo(W, y * sy); ctx.stroke(); }
-  ctx.fillStyle = '#4a2114'; ctx.font = `${12 * dpr}px system-ui`; ctx.fillText('N ↑', 10 * dpr, 18 * dpr);
-  // smooth positions
+  const W = cv.width, H = cv.height, dpr = devicePixelRatio, aw = snap.arena ? snap.arena.w : 20, ah = snap.arena ? snap.arena.h : 14;
+  const sx = W / aw, sy = H / ah, t = now / 1000;
+  // floor
+  const g = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.max(W, H) * 0.7); g.addColorStop(0, '#2a1008'); g.addColorStop(1, '#070202');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  hexGrid(W, H, 26 * dpr, dpr);
+  // centre spawn ring (pulsing)
+  ctx.strokeStyle = `rgba(255,106,42,${0.25 + 0.15 * Math.sin(t * 2)})`; ctx.lineWidth = 2 * dpr; ctx.setLineDash([8 * dpr, 8 * dpr]); ctx.lineDashOffset = -now / 40;
+  ctx.beginPath(); ctx.arc(W / 2, H / 2, 1.6 * sx, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = '#6a3020'; ctx.font = `${12 * dpr}px system-ui`; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText('N ↑', 12 * dpr, 20 * dpr);
+  // smooth positions + trails
   const byCard = new Map();
   for (const p of snap.players) {
-    const cur = shown.get(p.card) || { x: p.x, y: p.y, h: p.h };
-    cur.x = lerp(cur.x, p.x, 0.12); cur.y = lerp(cur.y, p.y, 0.12); cur.h = lerpAngle(cur.h, p.h, 0.2);
+    const cur = shown.get(p.card) || { x: p.x, y: p.y, h: p.h, trail: [] };
+    cur.x = lerp(cur.x, p.x, 0.1); cur.y = lerp(cur.y, p.y, 0.1); cur.h = lerpAngle(cur.h, p.h, 0.2);
+    const last = cur.trail[cur.trail.length - 1];
+    if (!last || Math.hypot(last.x - cur.x, last.y - cur.y) > 0.15) { cur.trail.push({ x: cur.x, y: cur.y, at: now }); if (cur.trail.length > 40) cur.trail.shift(); }
     shown.set(p.card, cur); byCard.set(p.card, { p, cur });
   }
   for (const card of [...shown.keys()]) if (!byCard.has(card)) shown.delete(card);
-  // hit flashes
-  for (let i = flashes.length - 1; i >= 0; i--) {
-    const f = flashes[i], age = now - f.at; if (age > 700) { flashes.splice(i, 1); continue; }
-    const a = byCard.get(f.from), b = byCard.get(f.to); if (!a || !b) continue;
-    ctx.globalAlpha = 1 - age / 700; ctx.strokeStyle = f.ko ? '#ff3b3b' : '#ffd166'; ctx.lineWidth = (f.ko ? 6 : 3) * dpr;
-    ctx.beginPath(); ctx.moveTo(a.cur.x * sx, a.cur.y * sy); ctx.lineTo(b.cur.x * sx, b.cur.y * sy); ctx.stroke();
-    ctx.beginPath(); ctx.arc(b.cur.x * sx, b.cur.y * sy, (14 + age / 20) * dpr, 0, Math.PI * 2); ctx.stroke();
+  // trails
+  for (const { p, cur } of byCard.values()) {
+    const col = COLORS[(p.card - 1) % 20];
+    for (let i = 1; i < cur.trail.length; i++) { const a = cur.trail[i - 1], b = cur.trail[i], age = now - b.at; if (age > 6000) continue; ctx.strokeStyle = col; ctx.globalAlpha = 0.35 * (1 - age / 6000); ctx.lineWidth = 3 * dpr; ctx.beginPath(); ctx.moveTo(a.x * sx, a.y * sy); ctx.lineTo(b.x * sx, b.y * sy); ctx.stroke(); }
     ctx.globalAlpha = 1;
   }
+  // beams + sparks + waves
+  for (let i = beams.length - 1; i >= 0; i--) {
+    const f = beams[i], age = now - f.at; if (age > 600) { beams.splice(i, 1); continue; }
+    const a = byCard.get(f.from), b = byCard.get(f.to); if (!a || !b) continue;
+    const ax = a.cur.x * sx, ay = a.cur.y * sy, bx = b.cur.x * sx, by = b.cur.y * sy;
+    if (!f.spawned) { f.spawned = true; for (let k = 0; k < (f.ko ? 36 : 14); k++) { const an = Math.random() * Math.PI * 2, sp = (1 + Math.random() * 3) * dpr; sparks.push({ x: bx, y: by, vx: Math.cos(an) * sp, vy: Math.sin(an) * sp, life: 1, col: f.ko ? '#ff3b3b' : '#ffd166' }); } if (f.ko) waves.push({ x: bx, y: by, at: now }); }
+    const k = 1 - age / 600; ctx.globalAlpha = k;
+    ctx.strokeStyle = f.ko ? '#ff3b3b' : '#ffd166'; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 16 * dpr; ctx.lineWidth = (f.ko ? 6 : 3) * dpr;
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  }
+  for (let i = sparks.length - 1; i >= 0; i--) { const s = sparks[i]; s.x += s.vx; s.y += s.vy; s.vx *= 0.94; s.vy *= 0.94; s.life -= 0.03; if (s.life <= 0) { sparks.splice(i, 1); continue; } ctx.globalAlpha = s.life; ctx.fillStyle = s.col; ctx.beginPath(); ctx.arc(s.x, s.y, 2.2 * dpr, 0, Math.PI * 2); ctx.fill(); }
+  ctx.globalAlpha = 1;
+  for (let i = waves.length - 1; i >= 0; i--) { const w = waves[i], age = now - w.at; if (age > 900) { waves.splice(i, 1); continue; } ctx.globalAlpha = 1 - age / 900; ctx.strokeStyle = '#ff3b3b'; ctx.lineWidth = 4 * dpr; ctx.beginPath(); ctx.arc(w.x, w.y, (10 + age / 6) * dpr, 0, Math.PI * 2); ctx.stroke(); }
+  ctx.globalAlpha = 1;
   // characters
   for (const { p, cur } of byCard.values()) {
-    const x = cur.x * sx, y = cur.y * sy, r = 16 * dpr, col = COLORS[(p.card - 1) % 20];
+    const col = COLORS[(p.card - 1) % 20], r = 17 * dpr, bob = Math.sin(t * 3 + p.card) * 1.5 * dpr;
+    const x = cur.x * sx, y = cur.y * sy + bob;
     ctx.globalAlpha = p.online ? 1 : 0.35;
-    // heading cone
-    const rad = cur.h * Math.PI / 180;
-    ctx.fillStyle = col + '55'; ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r * 2.6, rad - Math.PI / 2 - 0.45, rad - Math.PI / 2 + 0.45); ctx.closePath(); ctx.fill();
-    // health ring
-    ctx.lineWidth = 4 * dpr; ctx.strokeStyle = '#333'; ctx.beginPath(); ctx.arc(x, y, r + 5 * dpr, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = p.health <= 30 ? '#ff3b3b' : '#6fe08a'; ctx.beginPath(); ctx.arc(x, y, r + 5 * dpr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p.health / 100); ctx.stroke();
-    // body
-    ctx.fillStyle = p.down ? '#555' : col; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#000'; ctx.font = `bold ${14 * dpr}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#000a'; ctx.beginPath(); ctx.ellipse(x, y + r + 6 * dpr, r * 1.1, r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+    const glow = ctx.createRadialGradient(x, y, r * 0.6, x, y, r * 2.8); glow.addColorStop(0, col + '66'); glow.addColorStop(1, col + '00'); ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(x, y, r * 2.8, 0, Math.PI * 2); ctx.fill();
+    const rad = cur.h * Math.PI / 180; const cone = ctx.createRadialGradient(x, y, r, x, y, r * 3.4); cone.addColorStop(0, col + '88'); cone.addColorStop(1, col + '00');
+    ctx.fillStyle = cone; ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r * 3.4, rad - Math.PI / 2 - 0.5, rad - Math.PI / 2 + 0.5); ctx.closePath(); ctx.fill();
+    ctx.lineWidth = 5 * dpr; ctx.strokeStyle = '#2a2a2a'; ctx.beginPath(); ctx.arc(x, y, r + 6 * dpr, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = p.down ? '#555' : p.health <= 34 ? '#ff3b3b' : p.health <= 67 ? '#ffd166' : '#6fe08a'; ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 10 * dpr;
+    ctx.beginPath(); ctx.arc(x, y, r + 6 * dpr, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p.health / 100); ctx.stroke(); ctx.shadowBlur = 0;
+    const body = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.2, x, y, r); body.addColorStop(0, p.down ? '#777' : '#fff'); body.addColorStop(0.25, p.down ? '#555' : col); body.addColorStop(1, p.down ? '#222' : '#000');
+    ctx.fillStyle = body; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = p.down ? '#fff' : '#000'; ctx.font = `bold ${15 * dpr}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(p.down ? '☠' : String(p.card), x, y + 1 * dpr);
-    // name + score
-    ctx.fillStyle = '#fff'; ctx.font = `bold ${13 * dpr}px system-ui`; ctx.textBaseline = 'alphabetic';
-    ctx.fillText(`${p.name} · ${p.score}`, x, y - r - 10 * dpr);
-    if (p.down) { ctx.fillStyle = '#ff3b3b'; ctx.font = `${12 * dpr}px system-ui`; ctx.fillText(`back in ${Math.ceil(p.downLeft / 1000)}s`, x, y + r + 16 * dpr); }
+    const label = `${p.name} · ${p.score}`; ctx.font = `bold ${13 * dpr}px system-ui`; const w = ctx.measureText(label).width + 16 * dpr;
+    ctx.fillStyle = '#000c'; ctx.beginPath(); ctx.roundRect(x - w / 2, y - r - 30 * dpr, w, 20 * dpr, 10 * dpr); ctx.fill();
+    ctx.strokeStyle = col + 'aa'; ctx.lineWidth = 1 * dpr; ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.fillText(label, x, y - r - 20 * dpr);
+    if (p.down) { ctx.fillStyle = '#ff5b5b'; ctx.font = `bold ${12 * dpr}px system-ui`; ctx.fillText(`back in ${Math.ceil(p.downLeft / 1000)}s`, x, y + r + 20 * dpr); }
     ctx.globalAlpha = 1;
   }
-  if (!snap.players.length) { ctx.fillStyle = '#b89a8a'; ctx.font = `${20 * dpr}px system-ui`; ctx.textAlign = 'center'; ctx.fillText('Waiting for players…', W / 2, H / 2); }
+  const v = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75); v.addColorStop(0, '#0000'); v.addColorStop(1, '#000a'); ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  if (!snap.players.length) { ctx.fillStyle = '#b89a8a'; ctx.font = `${22 * dpr}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('Waiting for players… scan the code', W / 2, H / 2); }
+  if (snap.state !== 'live') { ctx.fillStyle = '#ffd166'; ctx.font = `bold ${16 * dpr}px system-ui`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillText(snap.state === 'lobby' ? 'LOBBY — press Start game' : 'ROUND OVER', W / 2, H - 16 * dpr); }
 }
 requestAnimationFrame(draw);
 </script></body></html>
